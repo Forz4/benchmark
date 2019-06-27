@@ -212,26 +212,13 @@ void start_recv_proc()
 	int nTotal = 0;
 	int nRead = 0;
 	int nLeft = 0;
-    int timeStart = 0;
-    int timeEnd = 0;
 
     for ( i = 0 ; i < g_numOfRecv ; i ++)
         maxfdp = maxfdp > g_sock4recv[i] ? maxfdp : g_sock4recv[i];
     maxfdp ++;
 
     while(1) {
-        /* check if parent process quit */
-        if ( getppid() == 1 ) {
-            logp( LOGINF , "detect parent process quit");
-            if ( timeStart )
-                timeEnd = time((time_t *)NULL);
-            else
-                timeStart = time((time_t *)NULL);
-            if ( timeEnd - timeStart >= 5 ){
-                logp( LOGINF , "receving process time out");
-                break;
-            }
-        }
+
         /* set time interval for select */
         timeout.tv_sec = 10;
         timeout.tv_usec = 0;
@@ -246,7 +233,8 @@ void start_recv_proc()
                 break;
         } else if ( rc == 0 ) {
             /* select time out */
-            continue;
+            logp( LOGINF , "select time out");
+            break;
         } else {
             for ( i = 0 ; i < g_numOfRecv ; i ++) {
                 if ( FD_ISSET(g_sock4recv[i] , &fds) ) {
