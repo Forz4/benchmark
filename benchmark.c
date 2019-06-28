@@ -24,6 +24,7 @@ void start_recv_proc();
 void clean_send_proc();
 void clean_recv_proc();
 void logp(log_level_t log_level , char *fmt , ...);
+void persist_trac( log_level_t log_level , int flag , int msgLength , char *msg);
 /* functions */
 void print_help()
 {
@@ -176,7 +177,7 @@ void start_send_proc()
             break;
         }
         /* get a socket to send */
-        logp( LOGINF , "SEND[%s]" , buf);
+        persist_trac( LOGINF , 0 , msgLength + 4 , buf);
 		nTotal = 0;
 		nSent = 0;
 		nLeft = msgLength + 4;
@@ -257,7 +258,7 @@ void start_recv_proc()
 		            		nLeft -= nRead;
 		            	}
 		            }
-                    logp( LOGINF , "RECV[%s]",buffer);
+                    persist_trac( LOGINF , 1 , textlen+4 ,buffer);
                 } /* end if */
             } /* end for */
         } /* end rc > 0 */ 
@@ -341,7 +342,44 @@ void logp( log_level_t log_level , char *fmt , ...)
     fflush(stdout);
 	return ;
 }
+void persist_trac( log_level_t log_level , int flag , int msgLength , char *msg)
+{
+    if ( log_level > g_logLevel )   return;
+	time_t t;
+	struct tm *timeinfo;
+	int sz = 0;
+	struct timeval tv_now;
+	char message[MAX_LINE_LEN];
+    char *send_format = "[%02d:%02d:%02d:%06d][PID<%-5d>][%6s][SEND>";
+    char *recv_format = "[%02d:%02d:%02d:%06d][PID<%-5d>][%6s][RECV>";
 
+    memset(message , 0x00 , MAX_LINE_LEN);
+	t = time(NULL);
+	gettimeofday(&tv_now , NULL);
+	time(&t);
+	timeinfo = localtime(&t);
+	sz = sprintf(message , \
+            flag == 0 ? send_format : recv_format , \
+			timeinfo->tm_hour , \
+			timeinfo->tm_min, \
+			timeinfo->tm_sec, \
+			tv_now.tv_usec, \
+			getpid(), \
+			level_print[log_level] );
+    if ( MAX_LINE_LEN - sz - 2 < msgLength ){
+        strncpy( message + sz , msg , MAX_LINE_LEN - sz - 2);
+        strncpy( message + MAX_LINE_LEN - 2 , "]\n" , 2);
+        fwrite( message , sizeof(char) , MAX_LINE_LEN , stdout);
+    } else {
+        strncpy( message + sz , msg , msgLength);
+        strncpy( message + sz + msgLength , "]\n" , 2);
+        fwrite( message , sizeof(char) , sz + msgLength + 2 , stdout);
+    }
+
+    fflush(stdout);
+	return ;
+
+}
 int main(int argc , char *argv[])
 {
     int i = 0;
