@@ -8,3 +8,6 @@ benchmark.o:	benchmark.c	benchmark.h
 
 clean:
 	@rm -f *.o
+
+pack:
+	@tar -cf benchmark.tar benchmark.c benchmark.h makefile
