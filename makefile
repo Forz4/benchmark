@@ -1,14 +1,20 @@
-linux: 
-	@gcc -o benchmark -Wall -std=gnu99 benchmark.c
-	@gcc -o Hex2Ascii -Wall -std=gnu99 Hex2Ascii.c
+CC=gcc
+CCFLAG=-Wall -std=gnu99
 
-aix:	
-	@cc -o benchmark benchmark.c
-	@cc -o Hex2Ascii Hex2Ascii.c
+#CC=cc
+#CCFLAG=
+
+all: benchmark convert
+
+benchmark: benchmark.c benchmark.h
+	@$(CC) -o benchmark $(CCFLAG) benchmark.c
+
+convert: convert.c
+	@$(CC) -o convert $(CCFLAG) convert.c
 
 clean:
 	@rm -f *.o
-	@rm -f benchmark Hex2Ascii
+	@rm -f benchmark convert
 
 pack:
-	@tar -cf benchmark.tar benchmark.c benchmark.h makefile Hex2Ascii.c 
+	@tar -cf benchmark.tar benchmark.c benchmark.h makefile convert.c 
