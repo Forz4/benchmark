@@ -15,6 +15,7 @@ int     g_timeLast;                     /* total time last */
 int     g_childPid;                     /* child pid */
 log_level_t     g_logLevel;             /* log level */
 float   g_percentage;                   /* varies from machinse */
+int     g_hexMode;                      /* hex mode */
 /* prototypes */
 void print_help();
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num);
@@ -35,6 +36,7 @@ void print_help()
     logp(LOGNON,"HELP:");
     logp(LOGNON,"    [-h]          print help page");
     logp(LOGNON,"    [-f filename] to specify input file name , set to STDIN by default");
+    logp(LOGNON,"    [-H]          set input mode to Hex , default option is ascii");
     logp(LOGNON,"    [-i ip]       remote IP address , set to 127.0.0.1 by default");
     logp(LOGNON,"    [-r remote_port1,remote_port2,...]");
     logp(LOGNON,"                  to specify remote port(s) , divided by comma");
@@ -145,14 +147,15 @@ void real_send()
     logp( LOGDBG , "child connection finish , father starts to send");
     int turns = 0;
     int i = 0;
+    int j = 0;
     struct timespec ts; 
     char buf[MAX_LINE_LEN];         
-    char temp[2]; 
-    int nRead = 0; 
+    char hex[MAX_LINE_LEN];         
     int msgLength = 0;
     int nTotal = 0;
     int nSent = 0;
     int nLeft = 0;
+    unsigned int c = 0;
     /* calculate time interval */
     cal_time_ns( g_tps , &ts);
     /* set time last for alarm signal */
@@ -160,36 +163,36 @@ void real_send()
         alarm(g_timeLast);
     /* send */
     while (1){
+        memset( hex , 0x00 , MAX_LINE_LEN);
         memset( buf , 0x00 , MAX_LINE_LEN);
-        nRead = fread(buf , sizeof(char) , 4 , g_fp );
-        if ( nRead == 0 ){
-            if ( g_fp == stdin ){
-                sleep(1);
-            } else {
-                fseek( g_fp , 0 , SEEK_SET);
+
+        fscanf( g_fp , "%s" , hex);
+        if ( g_hexMode == 1 ){
+            i = 0;
+            j = 0;
+            while ( i < strlen(hex) ){
+                sscanf( hex + i , "%02x" , &c );
+                buf[j++] = (char)c;
+                i += 2 ;
             }
-            continue;
-        } else if ( nRead != 4 ) {
-            logp( LOGERR , "invalid file format");
-            break;
+        } else {
+            memcpy( buf , hex , strlen(hex) );
         }
         /* validate length */
+        msgLength = 0;
         for ( i = 0 ; i < 4 ; i ++)
             if ( buf[i] < '0' || buf[i] > '9'){
                 logp( LOGERR , "invalid length");
                 break;
+            } else {
+                msgLength *= 10;
+                msgLength += (buf[i]-'0');
             }
-        msgLength = atoi(buf);
         if ( msgLength == 0 )
             break;
-        nRead = fread(buf+4 , sizeof(char) , msgLength , g_fp );
-        if ( nRead != msgLength ) {
-            logp( LOGERR , "invalid transaction length");
-            break;
-        }
-        nRead = fread( temp , sizeof(char) , 1 , g_fp );
-        if ( nRead != 1 || temp[0] != '\n' ) {
-            logp( LOGERR , "lack \\n at the end");
+        if ( ( g_hexMode == 1 && msgLength != strlen(hex)/2-4 ) || 
+                ( g_hexMode == 0 && msgLength != strlen(buf)-4 ) ) {
+            logp( LOGERR , "invalid length");
             break;
         }
         /* get a socket to send */
@@ -395,7 +398,6 @@ void persist_trac( log_level_t log_level , int flag , int msgLength , char *msg)
         memcpy( message + sz + msgLength , "]\n" , 2);
         fwrite( message , sizeof(char) , sz + msgLength + 2 , stdout);
     }
-
     fflush(stdout);
     return ;
 
@@ -419,7 +421,8 @@ int main(int argc , char *argv[])
     g_timeLast = 10;
     g_logLevel = LOGINF;
     g_percentage = 100.0;
-    while ( ( op = getopt( argc , argv , "hf:i:r:l:s:t:u:p:") ) > 0 ) {
+    g_hexMode = 0;
+    while ( ( op = getopt( argc , argv , "hHf:i:r:l:s:t:u:p:") ) > 0 ) {
         switch(op){
             case 'h' :
                 print_help();
@@ -465,6 +468,8 @@ int main(int argc , char *argv[])
                     exit(0);
                 }
                 break;
+            case 'H' :
+                g_hexMode = 1;
         }
     }
     logp(LOGDBG , "===========INPUT PARAMETERS=========");
