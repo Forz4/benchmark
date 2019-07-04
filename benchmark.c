@@ -28,7 +28,6 @@ void start_recv_proc();
 void clean_send_proc();
 void clean_recv_proc();
 void logp(log_level_t log_level , char *fmt , ...);
-void persist_trac( log_level_t log_level , int flag , int msgLength , char *msg);
 /* functions */
 void print_help()
 {
@@ -166,10 +165,11 @@ void real_send()
         memset( hex , 0x00 , MAX_LINE_LEN);
         memset( buf , 0x00 , MAX_LINE_LEN);
 
-        if ( fscanf( g_fp , "%s" , hex) == EOF ){
+        if ( fgets( hex , MAX_LINE_LEN , g_fp) == NULL ){
             fseek( g_fp , 0 , SEEK_SET);
             continue;
         }
+        hex[ strlen(hex) - 1 ] = '\0';
         if ( g_hexMode == 1 ){
             i = 0;
             j = 0;
@@ -199,7 +199,7 @@ void real_send()
             break;
         }
         /* get a socket to send */
-        persist_trac( LOGINF , 0 , msgLength + 4 , buf);
+        logp( LOGINF , "%s" , hex);
         nTotal = 0;
         nSent = 0;
         nLeft = msgLength + 4;
@@ -226,10 +226,12 @@ void start_recv_proc()
 {
     int rc = 0;
     int i = 0 ;
+    int j = 0;
     int maxfdp = -1;
     fd_set fds;
     struct timeval timeout;
     char buffer[MAX_LINE_LEN];
+    char hex[MAX_LINE_LEN];
     int recvlen = 0;
     int textlen = 0;
     int nTotal = 0;
@@ -277,7 +279,18 @@ void start_recv_proc()
                             nLeft -= nRead;
                         }
                     }
-                    persist_trac( LOGINF , 1 , textlen+4 ,buffer);
+                    if ( g_hexMode == 1){
+                        memset( hex , 0x00 , MAX_LINE_LEN);
+                        j = 0;
+                        for ( i = 0 ; i < textlen+4 && j+1 < MAX_LINE_LEN ; i ++){
+                            hex[j] = '0' + buffer[i] / 16;
+                            hex[j+1] = '0' + buffer[i] % 16;
+                            j += 2;
+                        }
+                        logp( LOGINF , "%s" , hex);
+                    } else {
+                        logp( LOGINF , "%s" , buffer);
+                    }
                 } /* end if */
             } /* end for */
         } /* end rc > 0 */ 
@@ -367,43 +380,6 @@ void logp( log_level_t log_level , char *fmt , ...)
     fprintf(stdout , "%s]\n" , message);
     fflush(stdout);
     return ;
-}
-void persist_trac( log_level_t log_level , int flag , int msgLength , char *msg)
-{
-    if ( log_level > g_logLevel )   return;
-    time_t t;
-    struct tm *timeinfo;
-    int sz = 0;
-    struct timeval tv_now;
-    char message[MAX_LINE_LEN];
-    char *send_format = "[%02d:%02d:%02d:%06d][PID<%-5d>][%6s][SEND>";
-    char *recv_format = "[%02d:%02d:%02d:%06d][PID<%-5d>][%6s][RECV>";
-
-    memset(message , 0x00 , MAX_LINE_LEN);
-    t = time(NULL);
-    gettimeofday(&tv_now , NULL);
-    time(&t);
-    timeinfo = localtime(&t);
-    sz = sprintf(message , \
-            flag == 0 ? send_format : recv_format , \
-            timeinfo->tm_hour , \
-            timeinfo->tm_min, \
-            timeinfo->tm_sec, \
-            tv_now.tv_usec, \
-            getpid(), \
-            level_print[log_level] );
-    if ( MAX_LINE_LEN - sz - 2 < msgLength ){
-        memcpy( message + sz , msg , MAX_LINE_LEN - sz - 2);
-        memcpy( message + MAX_LINE_LEN - 2 , "]\n" , 2);
-        fwrite( message , sizeof(char) , MAX_LINE_LEN , stdout);
-    } else {
-        memcpy( message + sz , msg , msgLength);
-        memcpy( message + sz + msgLength , "]\n" , 2);
-        fwrite( message , sizeof(char) , sz + msgLength + 2 , stdout);
-    }
-    fflush(stdout);
-    return ;
-
 }
 int main(int argc , char *argv[])
 {
