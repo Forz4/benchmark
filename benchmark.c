@@ -12,7 +12,7 @@ int     g_localPorts[MAX_SOCK_NUM];     /* local ports */
 int     g_numOfRecv;                    /* number of receiving sockets */
 int     g_tps;                          /* transaction per second */
 int     g_timeLast;                     /* total time last */
-int     g_childPid;                     /* child pid */
+int     g_recvPid;                     /* recv pid */
 log_level_t     g_logLevel;             /* log level */
 float   g_percentage;                   /* varies from machinse */
 int     g_hexMode;                      /* hex mode */
@@ -22,7 +22,7 @@ void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num);
 int start_listen();
 void start_send_proc();
 void real_send();
-void father_signal_handler(int no);
+void send_signal_handler(int no);
 void cal_time_ns(int tps , struct timespec *ts);
 void start_recv_proc();
 void clean_send_proc();
@@ -67,7 +67,7 @@ int start_listen()
     struct sockaddr_in client_addr;
     socklen_t socket_len = sizeof(client_addr);
     for ( i = 0 ; i < g_numOfRecv ; i ++){
-        logp( LOGDBG , "child starts to listen on local_port[%d] ...",g_localPorts[i]);
+        logp( LOGDBG , "recv starts to listen on local_port[%d] ...",g_localPorts[i]);
         server_sockfd = socket(AF_INET , SOCK_STREAM , 0);
         /*bind*/
         server_sockaddr.sin_family = AF_INET;
@@ -88,7 +88,7 @@ int start_listen()
             logp( LOGERR , "accept err , port[%d]" , g_localPorts[i]);
             return -1;
         }
-        logp( LOGDBG , "child local_port[%d] accept OK",g_localPorts[i]);
+        logp( LOGDBG , "recv local_port[%d] accept OK",g_localPorts[i]);
     }
     return 0;
 }
@@ -98,9 +98,9 @@ void start_send_proc()
     struct sockaddr_in servaddr;    
     int sock_send = 0; 
     /* handle signals */
-    signal( SIGALRM , father_signal_handler);
-    signal( SIGCHLD , father_signal_handler);
-    signal( SIGUSR1 , father_signal_handler);
+    signal( SIGALRM , send_signal_handler);
+    signal( SIGCHLD , send_signal_handler);
+    signal( SIGUSR1 , send_signal_handler);
     /* input file */
     if ( strlen(g_inputFileName) != 0 ){
         g_fp = NULL;
@@ -130,20 +130,20 @@ void start_send_proc()
             g_sock4send[i] = sock_send;
             break;
         }
-        logp( LOGDBG , "father connect to remote port[%d] OK" ,  g_remotePorts[i]);
+        logp( LOGDBG , "send connect to remote port[%d] OK" ,  g_remotePorts[i]);
     }
-    logp( LOGDBG , "father waits for child to complete connection ..." );
-    /* should be waken by child process SIGUSR1 signal for real send */
+    logp( LOGDBG , "send waits for recv to complete connection ..." );
+    /* should be waken by recv process SIGUSR1 signal for real send */
     sleep(20);
-    logp( LOGDBG , "father waiting time out" );
-    logp( LOGDBG , "killing child process" );
-    kill( g_childPid , SIGTERM );
+    logp( LOGDBG , "send waiting time out" );
+    logp( LOGDBG , "killing recv process" );
+    kill( g_recvPid , SIGTERM );
     clean_send_proc();
     exit(0);
 }
 void real_send()
 {
-    logp( LOGDBG , "child connection finish , father starts to send");
+    logp( LOGDBG , "recv connection finish , send starts to send");
     int turns = 0;
     int i = 0;
     int j = 0;
@@ -255,7 +255,7 @@ void start_recv_proc()
                 break;
         } else if ( rc == 0 ) {
             /* select time out */
-            logp( LOGDBG , "child select time out");
+            logp( LOGDBG , "recv select time out");
             break;
         } else {
             for ( i = 0 ; i < g_numOfRecv ; i ++) {
@@ -264,7 +264,7 @@ void start_recv_proc()
                     recvlen = recv( g_sock4recv[i] , buffer , 4 , 0);
                     if (recvlen <= 0){
                         clean_recv_proc();
-                        logp( LOGDBG , "child socket fail");
+                        logp( LOGDBG , "recv socket fail");
                         clean_recv_proc();
                         exit(0);
                     } else {
@@ -316,18 +316,18 @@ void clean_recv_proc()
             close(g_sock4recv[i]);
     return;
 }
-void father_signal_handler(int no)
+void send_signal_handler(int no)
 {
     switch(no) {
         case SIGALRM :
-            logp( LOGDBG , "father send over , wait for child to end");
+            logp( LOGDBG , "send send over , wait for recv to end");
             /* should be waken by SIGCHLD */
             sleep(20);
-            logp( LOGDBG , "father wait timed out");
+            logp( LOGDBG , "send wait timed out");
             clean_send_proc();
             exit(0);
         case SIGCHLD :
-            logp( LOGDBG , "detect child time out , father quit");
+            logp( LOGDBG , "detect recv time out , send quit");
             clean_send_proc();
             exit(0);
             break;
@@ -468,18 +468,18 @@ int main(int argc , char *argv[])
         print_help();
         exit(1);
     }
-    int g_childPid = fork();
-    if ( g_childPid < 0 ) {
+    int g_recvPid = fork();
+    if ( g_recvPid < 0 ) {
         logp( LOGERR , "fork err");
         exit(1);
-    } else if ( g_childPid == 0 ) {
-        logp( LOGDBG , "child process fork OK , start to listen on local ports");
+    } else if ( g_recvPid == 0 ) {
+        logp( LOGDBG , "recv process fork OK , start to listen on local ports");
         rc = start_listen();
         if ( rc !=  0 ) {
             clean_recv_proc();
             exit(1);
         }
-        /* tell father to start real send */
+        /* tell send to start real send */
         kill( getppid() , SIGUSR1 );
         start_recv_proc();
     }
