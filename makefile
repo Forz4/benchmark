@@ -17,4 +17,4 @@ clean:
 	@rm -f benchmark convert
 
 pack:
-	@tar -cf benchmark.tar benchmark.c benchmark.h makefile convert.c 
+	@tar -cf benchmark.tar benchmark.c benchmark.h makefile convert.c README.md
