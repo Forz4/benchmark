@@ -166,7 +166,10 @@ void real_send()
         memset( hex , 0x00 , MAX_LINE_LEN);
         memset( buf , 0x00 , MAX_LINE_LEN);
 
-        fscanf( g_fp , "%s" , hex);
+        if ( fscanf( g_fp , "%s" , hex) == EOF ){
+            fseek( g_fp , 0 , SEEK_SET);
+            continue;
+        }
         if ( g_hexMode == 1 ){
             i = 0;
             j = 0;
