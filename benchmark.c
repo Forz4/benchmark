@@ -155,6 +155,7 @@ void real_send()
     int nSent = 0;
     int nLeft = 0;
     unsigned int c = 0;
+    int lineNbr = 0;
     /* calculate time interval */
     cal_time_ns( g_tps , &ts);
     /* set time last for alarm signal */
@@ -167,8 +168,10 @@ void real_send()
 
         if ( fgets( hex , MAX_LINE_LEN , g_fp) == NULL ){
             fseek( g_fp , 0 , SEEK_SET);
+            lineNbr = 0;
             continue;
         }
+        lineNbr ++;
         hex[ strlen(hex) - 1 ] = '\0';
         if ( g_hexMode == 1 ){
             i = 0;
@@ -185,7 +188,7 @@ void real_send()
         msgLength = 0;
         for ( i = 0 ; i < 4 ; i ++)
             if ( buf[i] < '0' || buf[i] > '9'){
-                logp( LOGERR , "invalid length");
+                logp( LOGERR , "invalid first 4 bytes , linenbr[%d]" , lineNbr);
                 break;
             } else {
                 msgLength *= 10;
@@ -195,7 +198,7 @@ void real_send()
             break;
         if ( ( g_hexMode == 1 && msgLength != strlen(hex)/2-4 ) || 
                 ( g_hexMode == 0 && msgLength != strlen(buf)-4 ) ) {
-            logp( LOGERR , "invalid length");
+            logp( LOGERR , "invalid transaction length , lineNbr[%d]" , lineNbr);
             break;
         }
         /* get a socket to send */
@@ -366,7 +369,7 @@ void logp( log_level_t log_level , char *fmt , ...)
     time(&t);
     timeinfo = localtime(&t);
     sz = sprintf(message , \
-            "[%02d:%02d:%02d:%06d][PID<%-5d>][%6s][" ,\
+            "[%02d:%02d:%02d:%06d][PID<%-10d>][%6s][" ,\
             timeinfo->tm_hour , \
             timeinfo->tm_min, \
             timeinfo->tm_sec, \
