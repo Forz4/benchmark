@@ -27,6 +27,7 @@
 #define FILENAME_LEN        50
 #define IP_LEN              16
 #define MAX_LINE_LEN        2000
+#define DIVIDER             5
 
 typedef enum log_level{
 	LOGNON=0,

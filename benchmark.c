@@ -1,29 +1,28 @@
 /* benchmark for TCPIP transactions by wanghao*/
 #include "benchmark.h"
 /* global variables */
-FILE    *g_fp;                          /* input file pointer */
-char    g_inputFileName[FILENAME_LEN];  /* intpu file name */
-char    g_ipAddress[16];                /* remote IP*/
-int     g_sock4send[MAX_SOCK_NUM];      /* sockets for sending */
-int     g_numOfSend;                    /* number of sending sockets */
-int     g_remotePorts[MAX_SOCK_NUM];    /* remote ports */
-int     g_sock4recv[MAX_SOCK_NUM];      /* sockets for receiving */
-int     g_localPorts[MAX_SOCK_NUM];     /* local ports */
-int     g_numOfRecv;                    /* number of receiving sockets */
-int     g_tps;                          /* transaction per second */
-int     g_timeLast;                     /* total time last */
-int     g_recvPid;                     /* recv pid */
-log_level_t     g_logLevel;             /* log level */
-float   g_percentage;                   /* varies from machinse */
-int     g_hexMode;                      /* hex mode */
+FILE            *g_fp;                          /* input file pointer */
+char            g_inputFileName[FILENAME_LEN];  /* intpu file name */
+char            g_ipAddress[16];                /* remote IP*/
+int             g_sock4send[MAX_SOCK_NUM];      /* sockets for sending */
+int             g_numOfSend;                    /* number of sending sockets */
+int             g_remotePorts[MAX_SOCK_NUM];    /* remote ports */
+int             g_sock4recv[MAX_SOCK_NUM];      /* sockets for receiving */
+int             g_localPorts[MAX_SOCK_NUM];     /* local ports */
+int             g_numOfRecv;                    /* number of receiving sockets */
+int             g_tps;                          /* transaction per second */
+int             g_timeLast;                     /* total time last */
+int             g_recvPid;                      /* recv pid */
+log_level_t     g_logLevel;                     /* log level */
+int             g_hexMode;                      /* hex mode */
+int             g_fixInterval;                  /* fix interval*/
 /* prototypes */
 void print_help();
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num);
-int start_listen();
+int  start_listen();
 void start_send_proc();
 void real_send();
 void send_signal_handler(int no);
-void cal_time_ns(int tps , struct timespec *ts);
 void start_recv_proc();
 void clean_send_proc();
 void clean_recv_proc();
@@ -41,11 +40,11 @@ void print_help()
     logp(LOGNON,"                  to specify remote port(s) , divided by comma");
     logp(LOGNON,"    [-l local_port1,local_port2,...]");
     logp(LOGNON,"                  to specify local listening port(s) , divided by comma");
-    logp(LOGNON,"    [-s tps]      transaction per second , set to 10 by default");
+    logp(LOGNON,"    [-s tps]      transaction per second , valid from [10,100000] , set to 10 by default");
     logp(LOGNON,"    [-t time]     to specify total time last , set to 10 by default , valid range [0,999999] , 0 means infinite time");
     logp(LOGNON,"    [-u level]    to specify log level , valid range [0,6] , set to 4-LOGINF by default");
     logp(LOGNON,"                  0-LOGNON , 1-LOGFAT , 2-LOGERR , 3-LOGWAN , 4-LOGINF , 5-LOGADT , 6-LOGDBG");
-    logp(LOGNON,"    [-p percent]  to adjust time interval , valid from [1,100] , set to 100 by default.");
+    logp(LOGNON,"    [-p interval] to set fix interval time between transactions , valid from [0,100] us , default value is 10");
 }
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num)
 {
@@ -67,28 +66,28 @@ int start_listen()
     struct sockaddr_in client_addr;
     socklen_t socket_len = sizeof(client_addr);
     for ( i = 0 ; i < g_numOfRecv ; i ++){
-        logp( LOGDBG , "recv starts to listen on local_port[%d] ...",g_localPorts[i]);
+        logp( LOGDBG , "RECEIVER: starts to listen on local_port[%d] ...",g_localPorts[i]);
         server_sockfd = socket(AF_INET , SOCK_STREAM , 0);
         /*bind*/
         server_sockaddr.sin_family = AF_INET;
         server_sockaddr.sin_port = htons(g_localPorts[i]);
         server_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(server_sockfd , (struct sockaddr *)&server_sockaddr , sizeof(server_sockaddr)) == -1){
-            logp( LOGERR, "bind err , port[%d]" , g_localPorts[i]);
+            logp( LOGERR, "RECEIVER: bind err on port[%d]" , g_localPorts[i]);
             return -1;
         }
         /*listen*/
         if(listen(server_sockfd , 1) == -1){
-            logp( LOGERR , "listen err , port[%d]" , g_localPorts[i]);
+            logp( LOGERR , "RECEIVER: listen err on port[%d]" , g_localPorts[i]);
             return -1;
         }
         /*accept*/
         g_sock4recv[i] = accept(server_sockfd , (struct sockaddr *)&client_addr , &socket_len);
         if (g_sock4recv[i] < 0){
-            logp( LOGERR , "accept err , port[%d]" , g_localPorts[i]);
+            logp( LOGERR , "RECEIVER: accept err on port[%d]" , g_localPorts[i]);
             return -1;
         }
-        logp( LOGDBG , "recv local_port[%d] accept OK",g_localPorts[i]);
+        logp( LOGDBG , "RECEIVER: accept OK on port[%d]" , g_localPorts[i]);
     }
     return 0;
 }
@@ -102,11 +101,11 @@ void start_send_proc()
     signal( SIGCHLD , send_signal_handler);
     signal( SIGUSR1 , send_signal_handler);
     /* input file */
-    if ( strlen(g_inputFileName) != 0 ){
+   if ( strlen(g_inputFileName) != 0 ){
         g_fp = NULL;
         g_fp = fopen( g_inputFileName , "rb");
         if ( g_fp == NULL ){
-            logp( LOGERR , "fopen err , filename[%s]" , g_inputFileName);
+            logp( LOGERR , "SENDER: fopen err , filename[%s]" , g_inputFileName);
             exit(1);
         }
     } 
@@ -130,89 +129,99 @@ void start_send_proc()
             g_sock4send[i] = sock_send;
             break;
         }
-        logp( LOGDBG , "send connect to remote port[%d] OK" ,  g_remotePorts[i]);
+        logp( LOGDBG , "SENDER: connected to remote port[%d]" ,  g_remotePorts[i]);
     }
-    logp( LOGDBG , "send waits for recv to complete connection ..." );
+    logp( LOGDBG , "SENDER: start to wait 20s for RECEIVER to accept" );
     /* should be waken by recv process SIGUSR1 signal for real send */
     sleep(20);
-    logp( LOGDBG , "send waiting time out" );
-    logp( LOGDBG , "killing recv process" );
+    logp( LOGDBG , "SENDER: waiting for RECEIVER timed out" );
+    logp( LOGDBG , "SENDER: killing RECEIVER process" );
     kill( g_recvPid , SIGTERM );
     clean_send_proc();
     exit(0);
 }
 void real_send()
 {
-    logp( LOGDBG , "recv connection finish , send starts to send");
-    int turns = 0;
-    int i = 0;
-    int j = 0;
-    struct timespec ts; 
-    char buf[MAX_LINE_LEN];         
-    char hex[MAX_LINE_LEN];         
-    int msgLength = 0;
-    int nTotal = 0;
-    int nSent = 0;
-    int nLeft = 0;
+    int     i = 0;
+    int     j = 0;
+    int     turns = 0;                  /* for choosing sockets */
+    char    bufSend[MAX_LINE_LEN];     /* buffer for send */
+    char    bufRead[MAX_LINE_LEN];     /* buffer for read*/
+    int     msgLength = 0;
+    int     nTotal = 0;
+    int     nSent = 0;
+    int     nLeft = 0;
     unsigned int c = 0;
-    int lineNbr = 0;
-    /* calculate time interval */
-    cal_time_ns( g_tps , &ts);
-    /* set time last for alarm signal */
-    if ( g_timeLast )
-        alarm(g_timeLast);
-    /* send */
-    while (1){
-        memset( hex , 0x00 , MAX_LINE_LEN);
-        memset( buf , 0x00 , MAX_LINE_LEN);
+    int     lineNbr = 0;
+    char    *find = NULL;
+    struct  timeval t_start;
+    struct  timeval t_end;
+    struct  timeval t_last;
+    int     count = 0;
+    int     intervalUs = 0;
 
-        if ( fgets( hex , MAX_LINE_LEN , g_fp) == NULL ){
+    memset( &t_start , 0x00 , sizeof(struct timeval) );
+    memset( &t_end   , 0x00 , sizeof(struct timeval) );
+    memset( &t_last  , 0x00 , sizeof(struct timeval) );
+    if ( g_timeLast )
+         alarm(g_timeLast);
+
+    while (1){
+        if ( count == 0 ){
+            gettimeofday(&t_start, NULL);
+        }
+        memset( bufSend , 0x00 , MAX_LINE_LEN);
+        memset( bufRead , 0x00 , MAX_LINE_LEN);
+        if ( fgets( bufRead , MAX_LINE_LEN , g_fp) == NULL ){
             fseek( g_fp , 0 , SEEK_SET);
             lineNbr = 0;
             continue;
         }
         lineNbr ++;
-        hex[ strlen(hex) - 1 ] = '\0';
+        find = strchr( bufRead , '\n');
+        if ( find != NULL ){
+            *find = '\0';
+        }
         if ( g_hexMode == 1 ){
             i = 0;
             j = 0;
-            while ( i < strlen(hex) ){
-                sscanf( hex + i , "%02x" , &c );
-                buf[j++] = (char)c;
+            while ( i < strlen(bufRead) ){
+                sscanf( bufRead + i , "%02x" , &c );
+                bufSend[j++] = (char)c;
                 i += 2 ;
             }
         } else {
-            memcpy( buf , hex , strlen(hex) );
+            memcpy( bufSend , bufRead , strlen(bufRead) );
         }
         /* validate length */
         msgLength = 0;
         for ( i = 0 ; i < 4 ; i ++)
-            if ( buf[i] < '0' || buf[i] > '9'){
-                logp( LOGERR , "invalid first 4 bytes , linenbr[%d]" , lineNbr);
+            if ( bufSend[i] < '0' || bufSend[i] > '9'){
+                logp( LOGERR , "SENDER: invalid first 4 bytes , linenbr[%d]" , lineNbr);
                 break;
             } else {
                 msgLength *= 10;
-                msgLength += (buf[i]-'0');
+                msgLength += (bufSend[i]-'0');
             }
         if ( msgLength == 0 )
             break;
-        if ( ( g_hexMode == 1 && msgLength != strlen(hex)/2-4 ) || 
-                ( g_hexMode == 0 && msgLength != strlen(buf)-4 ) ) {
-            logp( LOGERR , "invalid transaction length , lineNbr[%d]" , lineNbr);
+        if ( ( g_hexMode == 1 && msgLength != strlen(bufRead)/2-4 ) || 
+                ( g_hexMode == 0 && msgLength != strlen(bufSend)-4 ) ) {
+            logp( LOGERR , "SENDER: invalid transaction length , lineNbr[%d] , bufRead[%s]" , lineNbr , bufRead);
             break;
         }
-        /* get a socket to send */
-        logp( LOGINF , "%s" , hex);
+        logp( LOGINF , ">>>%s" , bufRead);
+
         nTotal = 0;
         nSent = 0;
         nLeft = msgLength + 4;
         while( nTotal != msgLength + 4){
-            nSent = send( g_sock4send[turns] , buf + nTotal , nLeft , 0);
+            nSent = send( g_sock4send[turns] , bufSend + nTotal , nLeft , 0);
             if (nSent == 0){
                 break;
             }
             else if (nSent < 0){
-                logp( LOGERR , "sending socket fail");
+                logp( LOGERR , "SENDER: sending socket fail , remote port[%d]" , g_remotePorts[turns]);
                 break;
             }
             nTotal += nSent;
@@ -220,26 +229,39 @@ void real_send()
         }
         turns = (turns + 1) % g_numOfSend;
 
-        nanosleep(&ts , NULL);
+        /* controlling tps */
+        count = count + 1;
+        if ( count < g_tps / DIVIDER ) {
+            if ( g_fixInterval > 0 ){
+                usleep( g_fixInterval );
+            }
+        } else if ( count == g_tps / DIVIDER ){
+            count = 0;
+            gettimeofday(&t_end, NULL);
+            timersub(&t_end, &t_start, &t_last);
+            intervalUs = 1000000 / DIVIDER - t_last.tv_usec;
+            if ( intervalUs > 0 )
+                usleep( intervalUs );
+        }
     }
     clean_send_proc();
     exit(0);
 }
 void start_recv_proc()
 {
-    int rc = 0;
-    int i = 0 ;
-    int j = 0;
-    int maxfdp = -1;
-    fd_set fds;
-    struct timeval timeout;
-    char buffer[MAX_LINE_LEN];
-    char hex[MAX_LINE_LEN];
-    int recvlen = 0;
-    int textlen = 0;
-    int nTotal = 0;
-    int nRead = 0;
-    int nLeft = 0;
+    int         rc = 0;
+    int         i = 0 ;
+    int         j = 0;
+    int         maxfdp = -1;
+    fd_set      fds;
+    struct      timeval timeout;
+    char        buffer[MAX_LINE_LEN];
+    char        hex[MAX_LINE_LEN];
+    int         recvlen = 0;
+    int         textlen = 0;
+    int         nTotal = 0;
+    int         nRead = 0;
+    int         nLeft = 0;
     for ( i = 0 ; i < g_numOfRecv ; i ++)
         maxfdp = maxfdp > g_sock4recv[i] ? maxfdp : g_sock4recv[i];
     maxfdp ++;
@@ -258,7 +280,7 @@ void start_recv_proc()
                 break;
         } else if ( rc == 0 ) {
             /* select time out */
-            logp( LOGDBG , "recv select time out");
+            logp( LOGDBG , "RECEIVER: select time out");
             break;
         } else {
             for ( i = 0 ; i < g_numOfRecv ; i ++) {
@@ -267,7 +289,7 @@ void start_recv_proc()
                     recvlen = recv( g_sock4recv[i] , buffer , 4 , 0);
                     if (recvlen <= 0){
                         clean_recv_proc();
-                        logp( LOGDBG , "recv socket fail");
+                        logp( LOGDBG , "RECEIVER: recv fail on port[%d]" , g_localPorts[i]);
                         clean_recv_proc();
                         exit(0);
                     } else {
@@ -290,9 +312,9 @@ void start_recv_proc()
                             hex[j+1] = '0' + buffer[i] % 16;
                             j += 2;
                         }
-                        logp( LOGINF , "%s" , hex);
+                        logp( LOGINF , "<<<%s" , hex);
                     } else {
-                        logp( LOGINF , "%s" , buffer);
+                        logp( LOGINF , "<<<%s" , buffer);
                     }
                 } /* end if */
             } /* end for */
@@ -323,14 +345,13 @@ void send_signal_handler(int no)
 {
     switch(no) {
         case SIGALRM :
-            logp( LOGDBG , "send send over , wait for recv to end");
-            /* should be waken by SIGCHLD */
+            logp( LOGDBG , "SENDER: send time out , wait for RECEIVER to end");
             sleep(20);
-            logp( LOGDBG , "send wait timed out");
+            logp( LOGDBG , "SENDER: wait for RECEIVER to end time out");
             clean_send_proc();
             exit(0);
         case SIGCHLD :
-            logp( LOGDBG , "detect recv time out , send quit");
+            logp( LOGDBG , "SENDER: detect RECEIVER quit");
             clean_send_proc();
             exit(0);
             break;
@@ -338,19 +359,6 @@ void send_signal_handler(int no)
             real_send();
             break;
     }
-    return ;
-}
-void cal_time_ns(int tps , struct timespec *ts)
-{
-    if (tps == 1){
-        ts->tv_sec = 1;
-        ts->tv_nsec = 0;
-    } else {
-        ts->tv_sec = 0;
-        ts->tv_nsec = (long)((1.0/tps)*(1e9));
-    }
-    ts->tv_nsec *= g_percentage / 100;
-    logp( LOGDBG , "interval[%d,%d]" , ts->tv_sec , ts->tv_nsec);
     return ;
 }
 void logp( log_level_t log_level , char *fmt , ...)
@@ -366,7 +374,6 @@ void logp( log_level_t log_level , char *fmt , ...)
     memset(message , 0x00 , MAX_LINE_LEN);
     t = time(NULL);
     gettimeofday(&tv_now , NULL);
-    time(&t);
     timeinfo = localtime(&t);
     sz = sprintf(message , \
             "[%02d:%02d:%02d:%06d][PID<%-10d>][%6s][" ,\
@@ -402,8 +409,8 @@ int main(int argc , char *argv[])
     g_tps = 10;
     g_timeLast = 10;
     g_logLevel = LOGINF;
-    g_percentage = 100.0;
     g_hexMode = 0;
+    g_fixInterval = 10;
     while ( ( op = getopt( argc , argv , "hHf:i:r:l:s:t:u:p:") ) > 0 ) {
         switch(op){
             case 'h' :
@@ -424,8 +431,9 @@ int main(int argc , char *argv[])
                 break;
             case 's' :
                 g_tps = atoi(optarg);
-                if ( g_tps < 0 || g_tps > 20000 ) {
-                    logp( LOGERR , "tps should between [1,200000]" );
+                g_tps -= g_tps % DIVIDER;
+                if ( g_tps < 10 || g_tps > 100000 ) {
+                    logp( LOGERR , "tps should between [10,100000]" );
                     exit(0);
                 }
                 break;
@@ -444,14 +452,14 @@ int main(int argc , char *argv[])
                 }
                 break;
             case 'p' :
-                g_percentage = atoi(optarg);
-                if ( g_percentage < 0 || g_percentage > 100 ) {
-                    logp( LOGERR , "percentage should between [1,100]" );
+                g_fixInterval = atoi(optarg);
+                if ( g_fixInterval < 0 || g_fixInterval > 100 ) {
+                    logp( LOGERR , "interval should between [0,100]" );
                     exit(0);
                 }
-                break;
             case 'H' :
                 g_hexMode = 1;
+                break;
         }
     }
     logp(LOGDBG , "===========INPUT PARAMETERS=========");
@@ -466,17 +474,18 @@ int main(int argc , char *argv[])
     for ( i  = 0 ; i < g_numOfRecv ; i ++)
         logp(LOGDBG , "g_localPorts[%d] : [%d]" , i , g_localPorts[i] );
     logp(LOGDBG , "===========INPUT PARAMETERS=========");
+
     if ( g_numOfSend == 0 ||  g_numOfRecv == 0 ){
-        logp( LOGERR , "lack local or remote ports");
+        logp( LOGERR , "SENDER: lack local or remote ports");
         print_help();
         exit(1);
     }
     int g_recvPid = fork();
     if ( g_recvPid < 0 ) {
-        logp( LOGERR , "fork err");
+        logp( LOGERR , "SENDER: fork err");
         exit(1);
     } else if ( g_recvPid == 0 ) {
-        logp( LOGDBG , "recv process fork OK , start to listen on local ports");
+        logp( LOGDBG , "RECEIVER: start to listen on local ports");
         rc = start_listen();
         if ( rc !=  0 ) {
             clean_recv_proc();
