@@ -67,28 +67,28 @@ int start_listen()
     struct sockaddr_in client_addr;
     socklen_t socket_len = sizeof(client_addr);
     for ( i = 0 ; i < g_numOfRecv ; i ++){
-        logp( LOGDBG , "RECEIVER: starts to listen on local_port[%d] ...",g_localPorts[i]);
+        logp( LOGDBG , "starts to listen on local_port[%d] ...",g_localPorts[i]);
         server_sockfd = socket(AF_INET , SOCK_STREAM , 0);
         /*bind*/
         server_sockaddr.sin_family = AF_INET;
         server_sockaddr.sin_port = htons(g_localPorts[i]);
         server_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(server_sockfd , (struct sockaddr *)&server_sockaddr , sizeof(server_sockaddr)) == -1){
-            logp( LOGERR, "RECEIVER: bind err on port[%d]" , g_localPorts[i]);
+            logp( LOGERR, "bind err on port[%d]" , g_localPorts[i]);
             return -1;
         }
         /*listen*/
         if(listen(server_sockfd , 1) == -1){
-            logp( LOGERR , "RECEIVER: listen err on port[%d]" , g_localPorts[i]);
+            logp( LOGERR , "listen err on port[%d]" , g_localPorts[i]);
             return -1;
         }
         /*accept*/
         g_sock4recv[i] = accept(server_sockfd , (struct sockaddr *)&client_addr , &socket_len);
         if (g_sock4recv[i] < 0){
-            logp( LOGERR , "RECEIVER: accept err on port[%d]" , g_localPorts[i]);
+            logp( LOGERR , "accept err on port[%d]" , g_localPorts[i]);
             return -1;
         }
-        logp( LOGDBG , "RECEIVER: accept OK on port[%d]" , g_localPorts[i]);
+        logp( LOGDBG , "accept OK on port[%d]" , g_localPorts[i]);
     }
     return 0;
 }
@@ -106,7 +106,7 @@ void start_send_proc()
         g_fp = NULL;
         g_fp = fopen( g_inputFileName , "rb");
         if ( g_fp == NULL ){
-            logp( LOGERR , "SENDER: fopen err , filename[%s]" , g_inputFileName);
+            logp( LOGERR , "fopen err , filename[%s]" , g_inputFileName);
             exit(1);
         }
     } 
@@ -130,13 +130,13 @@ void start_send_proc()
             g_sock4send[i] = sock_send;
             break;
         }
-        logp( LOGDBG , "SENDER: connected to remote port[%d]" ,  g_remotePorts[i]);
+        logp( LOGDBG , "connected to remote port[%d]" ,  g_remotePorts[i]);
     }
-    logp( LOGDBG , "SENDER: start to wait 20s for RECEIVER to accept" );
+    logp( LOGDBG , "start to wait 20s for RECEIVER to accept" );
     /* should be waken by recv process SIGUSR1 signal for real send */
     sleep(20);
-    logp( LOGDBG , "SENDER: waiting for RECEIVER timed out" );
-    logp( LOGDBG , "SENDER: killing RECEIVER process" );
+    logp( LOGDBG , "waiting for RECEIVER timed out" );
+    logp( LOGDBG , "killing RECEIVER process" );
     kill( g_recvPid , SIGTERM );
     clean_send_proc();
     exit(0);
@@ -198,7 +198,7 @@ void real_send()
         msgLength = 0;
         for ( i = 0 ; i < 4 ; i ++)
             if ( bufSend[i] < '0' || bufSend[i] > '9'){
-                logp( LOGERR , "SENDER: invalid first 4 bytes , linenbr[%d]" , lineNbr);
+                logp( LOGERR , "invalid first 4 bytes , linenbr[%d]" , lineNbr);
                 break;
             } else {
                 msgLength *= 10;
@@ -208,7 +208,7 @@ void real_send()
             break;
         if ( ( g_hexMode == 1 && msgLength != strlen(bufRead)/2-4 ) || 
                 ( g_hexMode == 0 && msgLength != strlen(bufSend)-4 ) ) {
-            logp( LOGERR , "SENDER: invalid transaction length , lineNbr[%d] , bufRead[%s]" , lineNbr , bufRead);
+            logp( LOGERR , "invalid transaction length , lineNbr[%d] , bufRead[%s]" , lineNbr , bufRead);
             break;
         }
         logp( LOGINF , ">>>%s" , bufRead);
@@ -222,7 +222,7 @@ void real_send()
                 break;
             }
             else if (nSent < 0){
-                logp( LOGERR , "SENDER: sending socket fail , remote port[%d]" , g_remotePorts[turns]);
+                logp( LOGERR , "sending socket fail , remote port[%d]" , g_remotePorts[turns]);
                 break;
             }
             nTotal += nSent;
@@ -281,7 +281,7 @@ void start_recv_proc()
                 break;
         } else if ( rc == 0 ) {
             /* select time out */
-            logp( LOGDBG , "RECEIVER: select time out");
+            logp( LOGDBG , "select time out");
             break;
         } else {
             for ( i = 0 ; i < g_numOfRecv ; i ++) {
@@ -290,7 +290,7 @@ void start_recv_proc()
                     recvlen = recv( g_sock4recv[i] , buffer , 4 , 0);
                     if (recvlen <= 0){
                         clean_recv_proc();
-                        logp( LOGDBG , "RECEIVER: recv fail on port[%d]" , g_localPorts[i]);
+                        logp( LOGDBG , "recv fail on port[%d]" , g_localPorts[i]);
                         clean_recv_proc();
                         exit(0);
                     } else {
@@ -348,13 +348,13 @@ void send_signal_handler(int no)
 {
     switch(no) {
         case SIGALRM :
-            logp( LOGDBG , "SENDER: send time out , wait for RECEIVER to end");
+            logp( LOGDBG , "send time out , wait for RECEIVER to end");
             sleep(20);
-            logp( LOGDBG , "SENDER: wait for RECEIVER to end time out");
+            logp( LOGDBG , "wait for RECEIVER to end time out");
             clean_send_proc();
             exit(0);
         case SIGCHLD :
-            logp( LOGDBG , "SENDER: detect RECEIVER quit");
+            logp( LOGDBG , "detect RECEIVER quit");
             clean_send_proc();
             exit(0);
             break;
@@ -470,6 +470,7 @@ int main(int argc , char *argv[])
                     logp( LOGERR , "interval should between [0,100]" );
                     exit(0);
                 }
+                break;
             case 'H' :
                 g_hexMode = 1;
                 break;
@@ -489,17 +490,17 @@ int main(int argc , char *argv[])
     logp(LOGDBG , "===========INPUT PARAMETERS=========");
 
     if ( g_numOfSend == 0 ||  g_numOfRecv == 0 ){
-        logp( LOGERR , "SENDER: lack local or remote ports");
+        logp( LOGERR , "lack local or remote ports");
         print_help();
         exit(1);
     }
     int g_recvPid = fork();
     if ( g_recvPid < 0 ) {
-        logp( LOGERR , "SENDER: fork err");
+        logp( LOGERR , "fork err");
         exit(1);
     } else if ( g_recvPid == 0 ) {
-        logp( LOGDBG , "RECEIVER: start to listen on local ports");
         g_fplog = NULL;
+        logp( LOGDBG , "start to listen on local ports");
         rc = start_listen();
         if ( rc !=  0 ) {
             clean_recv_proc();
