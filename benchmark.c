@@ -16,6 +16,7 @@ int             g_recvPid;                      /* recv pid */
 log_level_t     g_logLevel;                     /* log level */
 int             g_hexMode;                      /* hex mode */
 int             g_fixInterval;                  /* fix interval*/
+FILE            *g_fplog;                       /* for log printing */
 /* prototypes */
 void print_help();
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num);
@@ -331,6 +332,7 @@ void clean_send_proc()
     for ( i = 0 ; i < g_numOfSend ; i ++)
         if ( g_sock4send[i] != 0 )
             close(g_sock4send[i]);
+    fclose(g_fplog);
     return;
 }
 void clean_recv_proc()
@@ -339,6 +341,7 @@ void clean_recv_proc()
     for ( i = 0 ; i < g_numOfRecv ; i ++)
         if ( g_sock4recv[i] != 0 )
             close(g_sock4recv[i]);
+    fclose(g_fplog);
     return;
 }
 void send_signal_handler(int no)
@@ -364,12 +367,22 @@ void send_signal_handler(int no)
 void logp( log_level_t log_level , char *fmt , ...)
 {
     if ( log_level > g_logLevel )   return;
+
+    char logFileName[FILENAME_LEN];
     va_list ap;
     time_t t;
     struct tm *timeinfo;
     int sz = 0;
     struct timeval tv_now;
     char message[MAX_LINE_LEN];
+
+    if ( g_fplog == NULL ){
+        sprintf( logFileName , "%d.log" , getpid());
+        g_fplog = fopen( logFileName , "a+");
+        if ( g_fplog == NULL){
+            g_fplog = stdout;
+        }
+    }
 
     memset(message , 0x00 , MAX_LINE_LEN);
     t = time(NULL);
@@ -387,8 +400,8 @@ void logp( log_level_t log_level , char *fmt , ...)
     vsnprintf(message + sz , MAX_LINE_LEN - sz , fmt , ap);
     va_end(ap);
 
-    fprintf(stdout , "%s]\n" , message);
-    fflush(stdout);
+    fprintf( g_fplog , "%s]\n" , message);
+    fflush( g_fplog );
     return ;
 }
 int main(int argc , char *argv[])
@@ -486,6 +499,7 @@ int main(int argc , char *argv[])
         exit(1);
     } else if ( g_recvPid == 0 ) {
         logp( LOGDBG , "RECEIVER: start to listen on local ports");
+        g_fplog = NULL;
         rc = start_listen();
         if ( rc !=  0 ) {
             clean_recv_proc();
