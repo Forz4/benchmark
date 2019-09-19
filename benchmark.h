@@ -29,6 +29,11 @@
 #define MAX_LINE_LEN        2000
 #define DIVIDER             5
 
+typedef struct message_struct{
+    long type;
+    char text[MAX_LINE_LEN];
+}msg_st;
+
 typedef enum log_level{
 	LOGNON=0,
 	LOGFAT=1,

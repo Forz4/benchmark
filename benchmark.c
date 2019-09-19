@@ -17,6 +17,8 @@ log_level_t     g_logLevel;                     /* log level */
 int             g_hexMode;                      /* hex mode */
 int             g_fixInterval;                  /* fix interval*/
 FILE            *g_fplog;                       /* for log printing */
+int             g_MSGKEY;
+int             g_qid;
 /* prototypes */
 void print_help();
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num);
@@ -28,24 +30,26 @@ void start_recv_proc();
 void clean_send_proc();
 void clean_recv_proc();
 void logp(log_level_t log_level , char *fmt , ...);
+int init_asyn();
+int start_persist_proc();
 /* functions */
 void print_help()
 {
-    logp(LOGNON,"benchmark");
-    logp(LOGNON,"HELP:");
-    logp(LOGNON,"    [-h]          print help page");
-    logp(LOGNON,"    [-f filename] to specify input file name , set to STDIN by default");
-    logp(LOGNON,"    [-H]          set input mode to Hex , default option is ascii");
-    logp(LOGNON,"    [-i ip]       remote IP address , set to 127.0.0.1 by default");
-    logp(LOGNON,"    [-r remote_port1,remote_port2,...]");
-    logp(LOGNON,"                  to specify remote port(s) , divided by comma");
-    logp(LOGNON,"    [-l local_port1,local_port2,...]");
-    logp(LOGNON,"                  to specify local listening port(s) , divided by comma");
-    logp(LOGNON,"    [-s tps]      transaction per second , valid from [10,100000] , set to 10 by default");
-    logp(LOGNON,"    [-t time]     to specify total time last , set to 10 by default , valid range [0,999999] , 0 means infinite time");
-    logp(LOGNON,"    [-u level]    to specify log level , valid range [0,6] , set to 4-LOGINF by default");
-    logp(LOGNON,"                  0-LOGNON , 1-LOGFAT , 2-LOGERR , 3-LOGWAN , 4-LOGINF , 5-LOGADT , 6-LOGDBG");
-    logp(LOGNON,"    [-p interval] to set fix interval time between transactions , valid from [0,100] us , default value is 10");
+    printf("benchmark\n");
+    printf("HELP:\n");
+    printf("    [-h]          print help page\n");
+    printf("    [-f filename] to specify input file name , set to STDIN by default\n");
+    printf("    [-H]          set input mode to Hex , default option is ascii\n");
+    printf("    [-i ip]       remote IP address , set to 127.0.0.1 by default\n");
+    printf("    [-r remote_port1,remote_port2,...]\n");
+    printf("                  to specify remote port(s) , divided by comma\n");
+    printf("    [-l local_port1,local_port2,...]\n");
+    printf("                  to specify local listening port(s) , divided by comma\n");
+    printf("    [-s tps]      transaction per second , valid from [10,100000] , set to 10 by default\n");
+    printf("    [-t time]     to specify total time last , set to 10 by default , valid range [0,999999] , 0 means infinite time\n");
+    printf("    [-u level]    to specify log level , valid range [0,6] , set to 4-LOGINF by default\n");
+    printf("                  0-LOGNON , 1-LOGFAT , 2-LOGERR , 3-LOGWAN , 4-LOGINF , 5-LOGADT , 6-LOGDBG\n");
+    printf("    [-p interval] to set fix interval time between transactions , valid from [0,100] us , default value is 10\n");
 }
 void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num)
 {
@@ -58,6 +62,43 @@ void parse_ports(char *line , int ports[MAX_SOCK_NUM] , int *num)
     }
     *num = i;
     return;
+}
+int init_asyn()
+{
+    int pid;
+    g_qid = msgget( g_MSGKEY , IPC_CREAT|0600);
+    if ( g_qid < 0 ){
+        return -1;
+    }
+    logp( LOGDBG , "get qid[%d]" , g_qid);
+    pid = fork();
+    if ( pid == 0 ){
+        fclose(g_fplog);
+        g_fplog = NULL;
+        start_persist_proc();
+    } else if ( pid < 0 ){
+        return -1;
+    } 
+    return 0;
+}
+int start_persist_proc()
+{
+    logp( LOGDBG , "into persist proc");
+    int ret = 0;
+    msg_st msgs;
+    while (1) {
+        alarm(0);
+        signal(SIGALRM , SIG_DFL);
+        alarm(20);
+        memset( &msgs , 0x00 , sizeof(msg_st));
+        ret = msgrcv( (key_t)g_qid , &msgs , sizeof(msg_st)-sizeof(long) , 0 , 0 );
+        logp( LOGDBG , "get msg from queue[%s]" , msgs.text);
+        if ( memcmp( msgs.text , "0000" , 4 ) == 0 ) break;
+        logp( LOGINF , "<<<%s" , msgs.text);
+    }
+    if ( g_fplog != NULL )
+        fclose(g_fplog);
+    exit(0);
 }
 int start_listen()
 {
@@ -160,6 +201,8 @@ void real_send()
     struct  timeval t_last;
     int     count = 0;
     int     intervalUs = 0;
+    msg_st  msgs;
+    int     rc = 0;
 
     memset( &t_start , 0x00 , sizeof(struct timeval) );
     memset( &t_end   , 0x00 , sizeof(struct timeval) );
@@ -211,7 +254,16 @@ void real_send()
             logp( LOGERR , "invalid transaction length , lineNbr[%d] , bufRead[%s]" , lineNbr , bufRead);
             break;
         }
-        logp( LOGINF , ">>>%s" , bufRead);
+        if ( g_MSGKEY > 0 ){
+            memset( &msgs , 0x00 , sizeof(msg_st));
+            strcpy( msgs.text , bufRead);
+            rc = msgsnd( (key_t)g_qid , &msgs , sizeof(msg_st)-sizeof(long) , 0);
+            if ( rc < 0 ){
+                logp( LOGDBG , "msgsnd fail , rc[%d]" , rc);
+            }
+        } else {
+            logp( LOGINF , ">>>%s" , bufRead);
+        }
 
         nTotal = 0;
         nSent = 0;
@@ -263,6 +315,7 @@ void start_recv_proc()
     int         nTotal = 0;
     int         nRead = 0;
     int         nLeft = 0;
+    msg_st      msgs;
     for ( i = 0 ; i < g_numOfRecv ; i ++)
         maxfdp = maxfdp > g_sock4recv[i] ? maxfdp : g_sock4recv[i];
     maxfdp ++;
@@ -289,7 +342,6 @@ void start_recv_proc()
                     memset(buffer , 0x00 , MAX_LINE_LEN);
                     recvlen = recv( g_sock4recv[i] , buffer , 4 , 0);
                     if (recvlen <= 0){
-                        clean_recv_proc();
                         logp( LOGDBG , "recv fail on port[%d]" , g_localPorts[i]);
                         clean_recv_proc();
                         exit(0);
@@ -313,9 +365,24 @@ void start_recv_proc()
                             hex[j+1] = '0' + buffer[i] % 16;
                             j += 2;
                         }
-                        logp( LOGINF , "<<<%s" , hex);
+                    }
+                    if ( g_MSGKEY > 0 ){
+                        memset(&msgs , 0x00 , sizeof(msg_st));
+                        if ( g_hexMode == 1){
+                            strcpy(msgs.text , hex);
+                        } else {
+                            strcpy(msgs.text , buffer);
+                        }
+                        rc = msgsnd( (key_t)g_qid , &msgs , sizeof(msg_st)-sizeof(long) , 0);
+                        if ( rc < 0 ){
+                            logp( LOGDBG , "msgsnd fail , rc[%d]" , rc);
+                        }
                     } else {
-                        logp( LOGINF , "<<<%s" , buffer);
+                        if ( g_hexMode == 1){
+                            logp( LOGINF , "<<<%s" , hex);
+                        } else {
+                            logp( LOGINF , "<<<%s" , buffer);
+                        }
                     }
                 } /* end if */
             } /* end for */
@@ -332,7 +399,8 @@ void clean_send_proc()
     for ( i = 0 ; i < g_numOfSend ; i ++)
         if ( g_sock4send[i] != 0 )
             close(g_sock4send[i]);
-    fclose(g_fplog);
+    if ( g_fplog != NULL )
+        fclose(g_fplog);
     return;
 }
 void clean_recv_proc()
@@ -341,7 +409,14 @@ void clean_recv_proc()
     for ( i = 0 ; i < g_numOfRecv ; i ++)
         if ( g_sock4recv[i] != 0 )
             close(g_sock4recv[i]);
-    fclose(g_fplog);
+    if ( g_fplog != NULL )
+        fclose(g_fplog);
+    if ( g_MSGKEY > 0 ){
+       msg_st msgs;
+       memset( &msgs , 0x00 , sizeof(msg_st));
+       strcpy(msgs.text , "0000");
+       msgsnd( (key_t)g_qid , &msgs , sizeof(msg_st)-sizeof(long) , 0);
+    }
     return;
 }
 void send_signal_handler(int no)
@@ -424,7 +499,8 @@ int main(int argc , char *argv[])
     g_logLevel = LOGINF;
     g_hexMode = 0;
     g_fixInterval = 10;
-    while ( ( op = getopt( argc , argv , "hHf:i:r:l:s:t:u:p:") ) > 0 ) {
+    g_MSGKEY = 0;
+    while ( ( op = getopt( argc , argv , "hHf:i:r:l:s:t:u:p:q:") ) > 0 ) {
         switch(op){
             case 'h' :
                 print_help();
@@ -474,6 +550,9 @@ int main(int argc , char *argv[])
             case 'H' :
                 g_hexMode = 1;
                 break;
+            case 'q' :
+                g_MSGKEY = atoi(optarg);
+                break;
         }
     }
     logp(LOGDBG , "===========INPUT PARAMETERS=========");
@@ -483,6 +562,9 @@ int main(int argc , char *argv[])
     logp(LOGDBG , "g_timeLast      : [%d]" , g_timeLast);
     logp(LOGDBG , "g_numOfSend     : [%d]" , g_numOfSend);
     logp(LOGDBG , "g_numOfRecv     : [%d]" , g_numOfRecv);
+    logp(LOGDBG , "g_MSGKEY        : [%d]" , g_MSGKEY);
+    logp(LOGDBG , "g_hexMode       : [%d]" , g_hexMode);
+    logp(LOGDBG , "g_logLevel      : [%d]" , g_logLevel);
     for ( i  = 0 ; i < g_numOfSend ; i ++)
         logp(LOGDBG , "g_remotePorts[%d] : [%d]" , i , g_remotePorts[i] );
     for ( i  = 0 ; i < g_numOfRecv ; i ++)
@@ -500,6 +582,14 @@ int main(int argc , char *argv[])
         exit(1);
     } else if ( g_recvPid == 0 ) {
         g_fplog = NULL;
+        if ( g_MSGKEY > 0 ){
+            logp( LOGDBG , "start to init asyn queue");
+            rc = init_asyn();
+            if ( rc < 0 ){
+                clean_recv_proc();
+                exit(1);
+            }
+        }
         logp( LOGDBG , "start to listen on local ports");
         rc = start_listen();
         if ( rc !=  0 ) {
